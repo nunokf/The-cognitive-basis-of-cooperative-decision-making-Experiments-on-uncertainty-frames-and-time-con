@@ -1,0 +1,752 @@
+---
+title: "The cognitive basis of cooperative decision-making Experiments on uncertainty, frames, and time constraints"
+author: "Nuno & Daniela"
+date: '2022-08-31'
+output: github_document
+---
+### Import Libraries
+```{r, echo=FALSE,warning=FALSE, message=FALSE, results=FALSE}
+packages <- c("astsa","fpp2","forecast","xts","TSstudio","ggplot2", "tseries", "MTS","dplyr","cowplot","stats","tidyr","egg","tidyverse","rlang","sjPlot","sjmisc","sjlabelled","readr","readxl","data.table","Matrix","lme4","emmeans")
+
+installed_packages <- packages %in% row.names(installed.packages())
+if (any(installed_packages == FALSE)) {
+  install.packages(packages[!installed.packages])
+}
+
+lapply(packages, library, character.only = TRUE)
+```
+
+# One-shot - First Experiment
+### read excel
+```{r}
+data= read_excel("Firstexplong.xlsx")
+```
+
+## Data preprocessing
+### In the BART TASK - 40551
+```{r}
+
+data$Investment <- factor(data$Investment, levels = c(0,1), labels = c("Not Invest", "Invest"))
+data$Game<- factor(data$Game,levels = c(0,1), labels = c("SPD", "DPD"))
+data$Pressure<- factor(data$Pressure,levels = c(0,1), labels = c("Time Delay", "Time Pressure"))   
+data$Frame<- factor(data$Frame,levels = c(0,1), labels = c("Loss frame", "Gain Frame"))
+
+data$Sex<- factor(data$Sex,levels = c(1,2), labels = c("Female", "Male")) 
+
+data$svo<- factor(data$svo,levels = c(1,2), labels = c("Prosocial", "Proself"))
+
+data$SES<- as.factor(data$SES)
+
+```
+
+## Exploratory data analysis
+```{r}
+#Table and proportions
+table_1 <- table(data$Investment,data$Game)
+table_2<-table(data$Investment,data$Pressure)
+table_3<-table(data$Investment,data$Frame)
+prop.table(table_1)
+round(prop.table(table_1),2)
+
+#row proportions, reference to row
+round(prop.table(table_1,1),2)
+100*round(prop.table(table_1,1),2)
+
+#colum proportions
+round(prop.table(table_1,2),2)
+
+#table functions three-way table
+table5 <-xtabs(~ Investment + Game + Pressure, data)
+ftable(table5)
+prop.table(table5)
+
+DT <- data.table(data)
+DT [, .("Cell N" = .N, 
+       "Freq. of Cooperation" = sum(Investment == "Invest"), 
+       "% Cooperating" = round(100 * sum(Investment == "Invest") / .N)),
+   .(Frame, Game, Pressure)
+   ]  %>% arrange(Frame, Game, Pressure)
+
+as.data.table(data)
+```
+
+### Positive vs. Negative Frame
+```{r}
+DT[, .("Cell N" = .N, 
+       "Freq. of Cooperation" = sum(Investment == "Invest"), 
+       "% Cooperating" = round(100 * sum(Investment == "Invest") / .N)),
+   .(Frame)
+   ]  
+```
+
+### Type of game: DPD vs. SPD
+```{r}
+DT[, .("Cell N" = .N, 
+       "Freq. of Cooperation" = sum(Investment == "Invest"), 
+       "% Cooperating" = round(100 * sum(Investment == "Invest") / .N)),
+   .(Game)
+   ]  
+```
+
+### Time Pressure vs. Time Delay
+```{r}
+DT[, .("Cell N" = .N, 
+       "Freq. of Cooperation" = sum(Investment == "Invest"), 
+       "% Cooperating" = round(100 * sum(Investment == "Invest") / .N)),
+   .(Pressure, Game)
+   ]  
+```
+
+
+# Inferential statistics
+
+##GLMM
+
+## Full model - all variables + control
+```{r}
+
+model1=glm(Investment ~ Game*Frame*Pressure +svo*Pressure 
+           +AdjustedValue_Bart*Game +AdjustedValue_Bart*Pressure +AdjustedValue_Bart*Frame
+           +PerspectiveTaking_IRI +EmpathicConcern_IRI + PersonalDiscomfort_IRI 
+           +Fantasy_IRI 
+           +PANAS_Positive_Affect +	PANAS_Negative_Affect +Sex +SES +difficultyfelt 	
+           +pleasant +proximity + cooperateonadailybasis
+           ,family=binomial(link="logit"),data = data)
+
+#summary(model1)
+tab_model(model1)
+logLik(model1)
+
+```
+
+
+
+## Model 2 - Manipulated variables + SES
+```{r}
+model2=glm(Investment ~ Game*Frame*Pressure
+      +SES,
+           family =binomial(link="logit"),data = data)
+
+#summary(model2)
+tab_model(model2)
+logLik(model2)
+
+```
+
+
+### comparison across models 
+```{r}
+anova(model1,model2, test="LRT")
+summary(anova(model1,model2))
+        
+```
+
+## Time pressure manipulation check
+```{r}
+
+#sum(data$log10_rt >= 1 & data$Pressure==1, na.rm=TRUE)
+
+#sum(data$log10_rt & data$Pressure ==1, na.rm=TRUE)
+  
+
+data_s <-  data %>% filter(log10_rt <= 1 & Pressure=="Time Pressure"|Pressure=="Time Delay")
+
+
+m1=glm(Investment ~ Game*Frame*Pressure + svo*Pressure
+           +AdjustedValue_Bart*Pressure+ AdjustedValue_Bart*Game+ AdjustedValue_Bart*Frame
+          +PerspectiveTaking_IRI +EmpathicConcern_IRI + PersonalDiscomfort_IRI + Fantasy_IRI +PANAS_Positive_Affect +	PANAS_Negative_Affect
+           + Sex + SES + difficultyfelt 	+pleasant
+           +proximity + cooperateonadailybasis ,family = binomial(link="logit"),data = data_s)
+
+#summary(m1)
+
+tab_model(m1)
+```
+
+```{r}
+m2=glm(Investment ~ Game*Frame*Pressure +
+           +SES,family = binomial(link="logit"),data =data_s)
+
+#summary(m2)
+
+tab_model(m2)
+```
+
+
+# Experiment 2 - Repeated Games
+
+### Read csv
+```{r, echo=FALSE}
+df = read.csv("dataSecondExp.csv")
+
+names(df)[4] = "Game"
+names(df)[1] = "Code"
+names(df)[3] = "Frame"
+names(df)[5] = "Pressure"
+df$Code = factor(df$Code)
+```
+
+### Preprocess
+```{r}
+
+df$Investment <- factor(df$Investment, levels = c(0,1), labels = c("Not Invest", "Invest"))
+
+df$Game<- factor(df$Game,levels = c(0,1), labels = c("SPD", "DPD"))
+df$Pressure<- factor(df$Pressure,levels = c(0,1), labels = c("Time Delay", "Time Pressure"))   
+
+df$Frame<- factor(df$Frame,levels = c(0,1), labels = c("Loss frame", "Gain Frame"))
+
+df$Gender<- factor(df$Gender,levels = c(1,2), labels = c("Female", "Male")) 
+
+df$svo_type[df$svo_type==4]<- 3
+
+```
+
+### remove subjects
+```{r}
+df_mod = subset(df, !(Code %in% c(43477,43509,
+43725,43607)))
+
+df_mod$Code = factor(df_mod$Code)
+  
+
+df_mod$svo_type[df_mod$svo_type==4]<- 3
+
+```
+
+### GLMM
+```{r}
+
+
+m1=glmer(Investment ~ Game*Frame*Pressure + (1|Supergame/Round/Code) +
+             Gender + factor(SES)+ difficultyfelt+pleasant
+             +proximity +cooperateonadailybasis 
+             + factor(svo_type)*Pressure 
+             + AdjustedValues_Bart*Pressure + AdjustedValues_Bart*Frame
+             +AdjustedValues_Bart*Game
+             +Perspective_Taking_IRI +Empathic_Concern_IRI
+         +Personal_Discomfort_IRI
+             +Fantasy_IRI
+             +PANAS_Positive_Affect +PANAS_Negative_Affect 
+             + Round + Supergame
+             ,family = binomial,data = df_mod,
+             control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5)))
+#summary(m1)
+
+tab_model(m1)
+
+```
+
+### Marginal Means
+```{r}
+#warp = pairs(emmeans(m1 ~ Game*Frame*Pressure))
+#warp
+
+emm = emmeans(m1, ~Game*Frame*Pressure)
+grid = ref_grid(m1)
+
+emmip(grid,Pressure~Game|Frame) + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+```
+
+```{r}
+noise <- emmeans(m1, ~Pressure*Game*Frame)
+
+
+contrast(noise, "consec", simple = "each", combine = TRUE, adjust = "mvt")
+```
+
+### Other's previous decision
+### preprocess
+```{r}
+
+Otherpastdecision= c()
+contador = 10
+counter = 1
+for(i in 1:length(df_mod$Other.decision)){
+     
+     if (contador == 10){
+         Otherpastdecision = append(Otherpastdecision, NA)}
+     
+     else {
+       Otherpastdecision = append(Otherpastdecision,df_mod$Other.decision[i-1])}
+     
+     if (contador == 19){
+         contador = 10}
+     
+     else{
+         contador = contador+1}
+  
+  counter = counter+1
+}
+
+
+df_mod$Otherpastdecision = Otherpastdecision
+#print(Otherpastdecision)
+
+#sum(is.na(df$Otherpastdecision))
+
+```
+
+### Glmm with other's past decision
+```{r}
+m2=glmer(Investment ~ Game*Frame*Pressure + 
+             Gender + factor(SES) +difficultyfelt
+            +pleasant +proximity +cooperateonadailybasis 
+             +Otherpastdecision + factor(svo_type)*Pressure 
+             + AdjustedValues_Bart*Pressure + AdjustedValues_Bart*Frame +AdjustedValues_Bart*Game
+             +Perspective_Taking_IRI +Empathic_Concern_IRI
+             +Personal_Discomfort_IRI +Fantasy_IRI
+             +PANAS_Positive_Affect +PANAS_Negative_Affect
+             + Round + Supergame + (1|Supergame/Round/Code) 
+             ,family=binomial,data=df_mod,control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5)))
+
+tab_model(m2)
+#summary(m2)
+
+```
+
+### Glmm 
+```{r}
+
+m3=glmer(Investment ~ Game*Frame*Pressure + 
+             Gender + factor(SES)+ difficultyfelt+pleasant
+             +proximity +cooperateonadailybasis 
+             + factor(svo_type)*Pressure 
+             + AdjustedValues_Bart*Pressure + AdjustedValues_Bart*Frame +AdjustedValues_Bart*Game
+             +Perspective_Taking_IRI +Empathic_Concern_IRI
+         +Personal_Discomfort_IRI
+             +Fantasy_IRI
+             +PANAS_Positive_Affect +PANAS_Negative_Affect 
+             + factor (Round) + factor (Supergame)  + (1|Supergame/Round/Code) 
+             ,family = binomial,data = df,
+             control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5)))
+#summary(m3)
+
+tab_model(m3)
+
+```
+
+# Time-series Analysis
+
+### Read csv
+```{r, echo=FALSE}
+df = read.csv("dataSecondExp.csv")
+```
+
+### Import Libraries
+```{r, echo=FALSE,warning=FALSE, message=FALSE, results=FALSE}
+packages <- c("astsa","fpp2","forecast","xts","TSstudio","ggplot2", "tseries", "MTS","dplyr","cowplot","stats","tidyr","egg")
+
+installed_packages <- packages %in% row.names(installed.packages())
+if (any(installed_packages == FALSE)) {
+  install.packages(packages[!installed.packages])
+}
+
+lapply(packages, library, character.only = TRUE)
+```
+
+### Filter for cooperative decisions
+```{r}
+df %>% filter(Investment == 1) %>% group_by(Supergame,Round) %>% summarize(mean = n()/192*100)->df2
+
+df2$trial<-1:nrow(df2)
+
+```
+## Overall Results
+
+### Decomposition of additive time series - trend, sazonality & noise
+
+```{r}
+df1 %>% decompose() %>% autoplot(range.bars = FALSE) + theme_bw() + xlab("Supergame") + scale_x_continuous(breaks=seq(1,10,1))+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) +   theme(plot.title = element_text(hjust = 0.5))
+```
+### ACF & PACF plots
+```{r}
+
+acf(diff(ts), lag = 365)
+
+pacf(diff(ts), lag = 365)
+```
+
+### Auto-Arima to the overall results
+```{r}
+arima = auto.arima(ts, trace=TRUE) 
+```
+
+### Ljung-Box test
+```{r}
+checkresiduals(arima)
+```
+### Arima summary
+```{r}
+summary(arima)
+```
+
+### Observations vs Sarima predictions - Plot
+```{r}
+df_ts = as.data.frame(ts)
+df_arima = as.data.frame(fitted(arima))
+
+df_bind = cbind(df_ts,df_arima)
+names(df_bind)[1] = "Observations"
+names(df_bind)[2] = "ARIMA"
+
+df_bind %>% pivot_longer(cols=c('Observations', 'ARIMA'),
+                    names_to='model',
+                    values_to='mean') ->long
+
+long$Round =  rep((10:109)/10, each=2)
+
+
+plot_sarima = ggplot(long, aes(x=Round, y=mean, colour = factor(model), linetype = factor(model))) +
+  geom_line(size = 0.7) + scale_linetype_manual(name = "Model", values = c(2,1),labels = c("SARIMA", "Observations")) +
+  
+  scale_color_manual(name = "Model", values = c("#F8766D","black"), labels = c("SARIMA", "Observations"))+
+  
+  scale_x_continuous(breaks=seq(1,10,1)) + scale_y_continuous(breaks=seq(0,100,10)) + 
+  
+  xlab("Supergame") + ylab("Mean Cooperation (%)") + theme_bw() +theme(plot.title = element_text(hjust = 0.5)) + theme(legend.title.align=0.5)+
+
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + ggtitle("Observations vs Fitted Model")
+
+plot_sarima
+
+```
+
+## Time Manipulation
+
+## Pressure==1 (Time Pressure) 
+```{r}
+df %>% subset(Pressure == 1) -> df2
+df2 %>% filter(Investment == 1) %>% group_by(Supergame,Round) %>% summarize(mean = n()/(nrow(df2)/100))->df2_pressure1
+
+df2_pressure1$trial<-1:nrow(df2_pressure1)
+
+```
+### Auto-Arima
+```{r}
+ts <- ts(df2_pressure1$mean, start=1, frequency=10)
+arima = auto.arima(ts, trace=TRUE) 
+```
+
+### Ljung-Box test
+```{r}
+checkresiduals(arima)
+```
+### Arima Summary
+```{r}
+summary(arima)
+```
+
+## Pressure==0 (Time-Delay)
+```{r}
+df %>% subset(Pressure == 0) -> df2
+df2 %>% filter(Investment == 1) %>% group_by(Supergame,Round) %>% summarize(mean = n()/(nrow(df2)/100))->df2
+
+df2$trial<-1:nrow(df2)
+
+```
+
+### Auto-Arima 
+```{r}
+ts <- ts(df2$mean, start=1, frequency=10)
+arima = auto.arima(ts, trace=TRUE) 
+```
+
+### Arima Summary
+```{r}
+summary(arima)
+```
+
+### Ljung-Box
+```{r}
+checkresiduals(arima)
+```
+
+## Frame Manipulation
+
+## Frame==1 (Gains)
+```{r}
+df %>% subset(Frame == 1) -> df2
+df2 %>% filter(Investment == 1) %>% group_by(Supergame,Round) %>% summarize(mean = n()/(nrow(df2)/100))->df2
+
+df2$trial<-1:nrow(df2)
+
+```
+
+### Auto-Arima
+```{r}
+ts <- ts(df2$mean, start=1, frequency=10)
+arima = auto.arima(ts, trace=TRUE) 
+```
+
+### Arima Summary
+```{r}
+summary(arima)
+```
+
+### Ljung-Box
+```{r}
+checkresiduals(arima)
+```
+
+## Frame==0 (Losses)
+```{r}
+df %>% subset(Frame == 0) -> df2
+df2 %>% filter(Investment == 1) %>% group_by(Supergame,Round) %>% summarize(mean = n()/(nrow(df2)/100))->df2
+
+df2$trial<-1:nrow(df2)
+
+```
+
+### Auto-arima
+```{r}
+ts <- ts(df2$mean, start=1, frequency=10)
+arima = auto.arima(ts, trace=TRUE) 
+```
+
+### Arima Summary
+```{r}
+summary(arima)
+```
+
+### Ljung-Box
+```{r}
+checkresiduals(arima)
+```
+
+## Game Manipulation
+
+## Game==1 (Deterministic)
+```{r}
+df %>% subset(Game == 1) -> df2
+df2 %>% filter(Investment == 1) %>% group_by(Supergame,Round) %>% summarize(mean = n()/(nrow(df2)/100))->df2
+
+df2$trial<-1:nrow(df2)
+
+```
+
+### Auto-Arima
+```{r}
+ts <- ts(df2$mean, start=1, frequency=10)
+arima = auto.arima(ts, trace=TRUE) 
+```
+
+### Arima Summary
+```{r}
+summary(arima)
+```
+
+### Ljung-Box
+```{r}
+checkresiduals(arima)
+```
+
+## Game==0 (Stochastic)
+```{r}
+df %>% subset(Game == 0) -> df2
+df2 %>% filter(Investment == 1) %>% group_by(Supergame,Round) %>% summarize(mean = n()/(nrow(df2)/100))->df2
+
+df2$trial<-1:nrow(df2)
+
+```
+
+### Auto-Arima
+```{r}
+ts <- ts(df2$mean, start=1, frequency=10)
+arima = auto.arima(ts, trace=TRUE) 
+```
+
+### Arima Summary
+```{r}
+summary(arima)
+```
+
+### Ljung-Box
+```{r}
+checkresiduals(arima)
+```
+
+### Preprocess data for plotting
+
+### Group-by Time condition
+```{r}
+df %>% filter(Investment == 1) %>% group_by(Supergame,Round,Pressure) %>% summarize(mean = n()/(nrow(df)/2/10000))->df2
+df2$trial<-rep((10:109)/10, each=2)
+```
+
+```{r}
+plot_time_pressure = ggplot(df2, aes(x=trial, y=mean, colour = factor(Pressure), linetype = factor(Pressure))) +
+  geom_line(size = 0.7) + scale_linetype_manual(name = "Time", values = c(1, 6),labels = c("Time Delay", "Time Pressure")) +
+  
+  scale_color_manual(name = "Time", values = c("#00BFC4","#F8766D"), labels = c("Time Delay", "Time Pressure"))+
+  
+  scale_x_continuous(breaks=seq(1,10,1)) + scale_y_continuous(breaks=seq(0,100,10)) + 
+  
+  xlab("") + ylab("") + theme_bw() +theme(plot.title = element_text(hjust = 0.5)) + theme(legend.title.align=0.5)+
+
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+#plot_time_pressure
+```
+
+### Group-by Frame condition
+```{r}
+df %>% filter(Investment == 1) %>% group_by(Supergame,Round,Frame.x) %>% summarize(mean = n()/(nrow(df)/2/10000))->df2
+df2$trial<-rep((10:109)/10, each=2)
+#head(df2,50)
+```
+
+
+```{r}
+plot_frame = ggplot(df2, aes(x=trial, y=mean, color = factor(Frame.x), linetype = factor(Frame.x))) +
+  geom_line(size = 0.7) + scale_linetype_manual(name = "Frame", values = c(1, 6),labels = c("Losses", "Gains")) +
+  
+  scale_color_manual(name = "Frame", values = c("#BB9D00","#AC88FF"), labels = c("Losses", "Gains"))+
+  
+  scale_x_continuous(breaks=seq(1,10,1)) + scale_y_continuous(breaks=seq(0,100,10)) + 
+  
+  xlab("") + ylab("Mean Cooperation (%)") + theme_bw() + theme(legend.title.align=0.5) +
+
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+#plot_frame
+```
+
+### Group-by Game condition
+```{r}
+df %>% filter(Investment == 1) %>% group_by(Supergame,Round,Game) %>% summarize(mean = n()/(nrow(df)/2/10000))->df2
+df2$trial<-rep((10:109)/10, each=2)
+#head(df2,50)
+```
+
+```{r}
+plot_game = ggplot(df2, aes(x=trial, y=mean, color = factor(Game), linetype = factor(Game))) +
+  geom_line(size = 0.7) + scale_linetype_manual(name = "Game", values = c(1, 6),labels = c("Stochastic", "Deterministic")) +
+  
+  scale_color_manual(name = "Game", values = c("#00BC59", "#F066EA"), labels = c("Stochastic", "Deterministic"))+
+  
+  scale_x_continuous(breaks=seq(1,10,1)) + scale_y_continuous(breaks=seq(0,100,10)) + 
+  
+  xlab("Supergame") + ylab("") + theme_bw() + theme(legend.title.align=0.5) +
+
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+#plot_game
+```
+
+
+# Plot Cooperation by Condition
+```{r}
+library(egg)
+
+
+#same.size.ggplot(c("plot_time_pressure", "plot_frame", "plot_game"), "plot_frame") 
+plot_row = plot_grid(plot_time_pressure, plot_frame, plot_game, nrow = 3, align = "v")
+
+title <- ggdraw() + 
+  draw_label(
+    "Cooperation by Condition",
+    fontface = 'bold',
+    x = 0.25,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+### Interaction Plot - Time*Game
+
+### search for play with 0 cooperation
+```{r}
+counter = 1
+contador=1
+
+lista = c(0,1,10,11)
+
+for (i in df2$new){
+  if (i!=lista[counter]){
+    print(contador)
+    break
+  }
+  if (counter == 4){
+    counter = 1
+  }
+  else {
+    counter = counter+1
+  }
+  
+  contador = contador+1
+} 
+```
+
+```{r}
+
+new_row = c(3,10,10,0)
+df2 = as.data.frame(df2)
+```
+
+```{r}
+df3 = rbind(df2[1:118,],new_row)
+df4 = rbind(df3, df2[119:nrow(df2),])
+```
+
+```{r}
+df4$trial<-rep((10:109)/10, each=4)
+```
+
+### recode
+```{r}
+df %>% 
+       mutate(new = case_when(Game == 1 & Pressure == 1 ~ 11, 
+                             Game == 1 & Pressure == 0 ~ 10,
+                             Game == 0 & Pressure == 0 ~ 00,
+                             Game == 0 & Pressure == 1 ~ 01)) -> df_new
+
+```
+
+### summarize
+```{r}
+df_new %>% filter(Investment == 1) %>% group_by(Supergame,Round,new) %>% summarize(mean = n()/(nrow(df_new)/2/10000))->df2
+df2$trial<-rep((10:109)/10, each=4)
+#head(df2,50)
+```
+#facet_wrap
+```{r}
+
+
+df2 %>% mutate(Game = case_when(new == 0 ~  0,
+                                new == 1 ~  0,
+                                new == 11 ~ 1,
+                                new == 10 ~ 1),
+               
+               Pressure = case_when(new == 0 ~ 0,
+                                 new == 1 ~ 1,
+                                 new == 11 ~ 1,
+                                 new == 10 ~0)) ->df5
+```
+
+### plot
+```{r}
+df5 %>%  mutate(Game = recode(Game, "0" = "Stochastic", "1" = "Deterministic")) %>% ggplot(aes(x=trial, y=mean, colour = factor(Pressure), linetype = factor(Pressure))) +
+  geom_line(size = 0.7) + scale_linetype_manual(name = "Pressure", values = c(1, 6),labels = c("Time Delay", "Time Pressure")) +
+  
+  scale_color_manual(name = "Pressure", values = c("#00BFC4","#F8766D"), labels = c("Time Delay", "Time Pressure"))+
+  
+  scale_x_continuous(breaks=seq(1,10,1)) + scale_y_continuous(breaks=seq(0,100,10)) + 
+  
+  xlab("") + ylab("") + theme_bw() +theme(plot.title = element_text(hjust = 0.5)) + theme(legend.title.align=0.5)+
+
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + facet_wrap(~Game)
+
+```
+
